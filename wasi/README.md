@@ -34,6 +34,7 @@ target/.../mf4_rs.wasm      (exports mf4:core) ─┘
 
 ```bash
 rustup target add wasm32-wasip2
+cargo install just           # cross-platform task runner
 cargo install wasm-tools     # optional: inspect the component's WIT
 cargo install wac-cli        # provides the `wac` composer
 cargo install wasmtime-cli   # provides the `wasmtime` runtime
@@ -41,27 +42,22 @@ cargo install wasmtime-cli   # provides the `wasmtime` runtime
 
 ## Build & run everything
 
-From the repository root:
-
-```powershell
-# Windows PowerShell
-./wasi/build.ps1
-```
+A cross-platform [`justfile`](../justfile) at the repository root drives the
+whole flow (POSIX shells and Windows `cmd.exe`). From the repository root:
 
 ```bash
-# Linux / macOS
-./wasi/build.sh
+just run        # build lib + examples, compose each, run under wasmtime
+just compose    # build + compose only (skip the wasmtime run)
+just build      # build the library component and all example commands
+just wit        # print the component's exported WIT
 ```
 
-Both scripts:
+`just run`:
 
-1. build the library component,
-2. build all example command components,
-3. compose each example with the library via `wac plug`, and
-4. run each composed component with `wasmtime run --dir .`.
-
-Pass `-NoRun` (PowerShell) or `--no-run` (bash) to build and compose without
-executing.
+1. builds the library component,
+2. builds all example command components,
+3. composes each example with the library via `wac plug`, and
+4. runs each composed component with `wasmtime run --dir .`.
 
 ## Inspecting the exported interface
 

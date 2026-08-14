@@ -42,8 +42,7 @@ wasi/
   wit/
     world.wit                  # the mf4:core@x.y.z package + `mf4` world
   README.md                    # toolchain + build/compose/run instructions
-  build.ps1                    # Windows build+compose+run driver
-  build.sh                     # POSIX build+compose+run driver
+justfile                       # cross-platform build+compose+run driver (repo root)
 wasi_examples/                 # separate cargo workspace (its own Cargo.toml)
   Cargo.toml                   # [workspace] over the example crates
   write_file/
@@ -321,12 +320,14 @@ Toolchain (documented in `wasi/README.md`):
 - `cargo install wac-cli wasm-tools`
 - a `wasmtime` binary (>= 24, component model on by default)
 
-Driver (`wasi/build.ps1`, `wasi/build.sh`) does:
+Driver (`justfile` at the repo root, recipe `just run`) does:
 1. `cargo build --release --target wasm32-wasip2 --features wasip2`
-2. `wasm-tools component wit target/wasm32-wasip2/release/mf4_rs.wasm` (sanity check)
-3. For each example: `cargo build --release --target wasm32-wasip2` (in `wasi_examples/`)
-4. `wac plug <example>.wasm --plug target/.../mf4_rs.wasm -o dist/<example>.composed.wasm`
-5. `wasmtime run --dir . dist/<example>.composed.wasm`
+2. For each example: `cargo build --release --target wasm32-wasip2` (via `--manifest-path wasi_examples/Cargo.toml`)
+3. `wac plug <example>.wasm --plug target/.../mf4_rs.wasm -o target/.../<example>.composed.wasm`
+4. `wasmtime run --dir . target/.../<example>.composed.wasm`
+
+(`just wit` runs `wasm-tools component wit` as a sanity check; `just compose`
+stops before the wasmtime run.)
 
 ## 7. Testing
 

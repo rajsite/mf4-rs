@@ -21,18 +21,16 @@ against the library component built from the crate root with
 
 ## Build & run
 
-Requires the `wasm32-wasip2` target, `wasm-tools`, `wac`, and `wasmtime`. From
-the repository root:
+Requires the `wasm32-wasip2` target plus `just`, `wac`, and `wasmtime` (and
+optionally `wasm-tools`). A cross-platform [`justfile`](../justfile) at the
+repository root drives the flow — from the repository root:
 
 ```bash
-# Windows PowerShell
-./wasi/build.ps1
-
-# Linux/macOS
-./wasi/build.sh
+just run        # build lib + examples, compose each, run under wasmtime
+just compose    # build + compose only (skip the wasmtime run)
 ```
 
-The scripts build the library component, build each example command, compose
-them with `wac plug`, and run each composed component with
+`just run` builds the library component, builds each example command, composes
+them with `wac plug`, and runs each composed component with
 `wasmtime run --dir .` (so the components can read/write files in the current
 directory).

@@ -469,14 +469,14 @@ jobs:
       - uses: bytecodealliance/actions/wasmtime/setup@v1
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
-      - name: Install wac
-        run: cargo binstall -y wac-cli || cargo install wac-cli
+      - name: Install wac and just
+        run: cargo binstall -y wac-cli just || cargo install wac-cli just
       - name: Build library component
         run: cargo build --release --target wasm32-wasip2 --features wasip2
       - name: Verify exported WIT
         run: wasm-tools component wit target/wasm32-wasip2/release/mf4_rs.wasm
       - name: Compose and run every example
-        run: ./wasi/build.sh
+        run: just run
       - name: Upload component artifact
         uses: actions/upload-artifact@v4
         with:

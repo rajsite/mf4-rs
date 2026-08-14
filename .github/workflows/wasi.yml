@@ -56,8 +56,8 @@ jobs:
       # (prebuilt binary) with a source-build fallback.
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main
-      - name: Install wac
-        run: cargo binstall -y wac-cli || cargo install wac-cli
+      - name: Install wac and just
+        run: cargo binstall -y wac-cli just || cargo install wac-cli just
 
       - name: Build library component
         run: cargo build --release --target wasm32-wasip2 --features wasip2
@@ -67,9 +67,5 @@ jobs:
           wasm-tools component wit \
             target/wasm32-wasip2/release/mf4_rs.wasm
 
-      - name: Build example command components
-        working-directory: wasi_examples
-        run: cargo build --release --target wasm32-wasip2
-
       - name: Compose and run every example
-        run: ./wasi/build.sh
+        run: just run
