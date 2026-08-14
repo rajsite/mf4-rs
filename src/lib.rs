@@ -37,6 +37,11 @@ pub mod api {
 #[cfg(feature = "pyo3")]
 pub mod python;
 
+// Shared, target-neutral fragment-backed byte-range readers. Used by both
+// the wasm-bindgen (`wasm`) and WASI Preview 2 component (`wasip2`) bindings.
+#[cfg(any(feature = "wasm", feature = "wasip2"))]
+pub(crate) mod fragments;
+
 // WebAssembly (wasm-bindgen) bindings module
 #[cfg(feature = "wasm")]
 pub mod wasm;
