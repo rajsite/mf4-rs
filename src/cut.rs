@@ -6,7 +6,7 @@ use crate::blocks::source_block::SourceBlock;
 use crate::error::MdfError;
 use crate::parsing::decoder::{decode_channel_value, DecodedValue};
 use crate::parsing::mdf_file::MdfFile;
-use crate::writer::MdfWriter;
+use crate::writer::{InMemorySink, MdfWriter};
 
 /// Recursively copy a referenced block (`##TX`, `##MD`, `##SI`, or `##CC`)
 /// from the source MDF mmap into the writer, rewriting any link fields so
@@ -150,17 +150,46 @@ pub(crate) fn clone_block_to_writer(
 /// * `output_path` - Destination path for the trimmed file
 /// * `start_ns` - Start of the window in UNIX-epoch nanoseconds (inclusive)
 /// * `end_ns` - End of the window in UNIX-epoch nanoseconds (inclusive)
+#[cfg(not(target_arch = "wasm32"))]
 pub fn cut_mdf_by_utc_ns(
     input_path: &str,
     output_path: &str,
     start_ns: i64,
     end_ns: i64,
 ) -> Result<(), MdfError> {
-    // Peek at the source file just to read its absolute start time. This
-    // mirrors the parse the main cut routine performs immediately after, but
-    // we keep the two parses separate so the time math is self-contained.
-    let mdf_for_anchor = MdfFile::parse_from_file(input_path)?;
-    let file_start_ns: u64 = mdf_for_anchor.header.abs_time;
+    let mdf = MdfFile::parse_from_file(input_path)?;
+    let (start_rel_s, end_rel_s) = utc_ns_to_relative_seconds(&mdf, start_ns, end_ns)?;
+    let mut writer = MdfWriter::new(output_path)?;
+    cut_core(&mdf, &mut writer, start_rel_s, end_rel_s)?;
+    writer.finalize()
+}
+
+/// In-memory variant of [`cut_mdf_by_utc_ns`]: cut by absolute UNIX-epoch
+/// nanosecond timestamps, taking the source file as bytes and returning the
+/// trimmed file as bytes. Available on all targets (including wasm/WASI).
+pub fn cut_mdf_by_utc_ns_bytes(
+    data: &[u8],
+    start_ns: i64,
+    end_ns: i64,
+) -> Result<Vec<u8>, MdfError> {
+    let mdf = MdfFile::parse_from_bytes(data.to_vec())?;
+    let (start_rel_s, end_rel_s) = utc_ns_to_relative_seconds(&mdf, start_ns, end_ns)?;
+    let sink = InMemorySink::new();
+    let mut writer = MdfWriter::new_from_writer(sink.clone());
+    cut_core(&mdf, &mut writer, start_rel_s, end_rel_s)?;
+    writer.finalize()?;
+    Ok(sink.to_vec())
+}
+
+/// Convert an inclusive `[start_ns, end_ns]` window in UNIX-epoch nanoseconds
+/// to seconds relative to the file's `HD.abs_time` anchor. Errors when the
+/// file records no absolute start time.
+fn utc_ns_to_relative_seconds(
+    mdf: &MdfFile,
+    start_ns: i64,
+    end_ns: i64,
+) -> Result<(f64, f64), MdfError> {
+    let file_start_ns: u64 = mdf.header.abs_time;
     if file_start_ns == 0 {
         return Err(MdfError::BlockSerializationError(
             "source file has no absolute start time (HD.abs_time = 0); \
@@ -168,13 +197,10 @@ pub fn cut_mdf_by_utc_ns(
                 .into(),
         ));
     }
-    drop(mdf_for_anchor);
-
     let anchor = file_start_ns as i128;
     let start_rel_s = (start_ns as i128 - anchor) as f64 / 1.0e9;
     let end_rel_s = (end_ns as i128 - anchor) as f64 / 1.0e9;
-
-    cut_mdf_by_time(input_path, output_path, start_rel_s, end_rel_s)
+    Ok((start_rel_s, end_rel_s))
 }
 
 /// Cut a segment of an MDF file based on time stamps.
@@ -202,6 +228,7 @@ pub fn cut_mdf_by_utc_ns(
 ///
 /// # Returns
 /// `Ok(())` on success or an [`MdfError`] if reading or writing fails.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn cut_mdf_by_time(
     input_path: &str,
     output_path: &str,
@@ -210,6 +237,36 @@ pub fn cut_mdf_by_time(
 ) -> Result<(), MdfError> {
     let mdf = MdfFile::parse_from_file(input_path)?;
     let mut writer = MdfWriter::new(output_path)?;
+    cut_core(&mdf, &mut writer, start_time, end_time)?;
+    writer.finalize()
+}
+
+/// In-memory variant of [`cut_mdf_by_time`]: cut by relative-seconds window,
+/// taking the source file as bytes and returning the trimmed file as bytes.
+/// Available on all targets (including wasm/WASI).
+pub fn cut_mdf_by_time_bytes(
+    data: &[u8],
+    start_time: f64,
+    end_time: f64,
+) -> Result<Vec<u8>, MdfError> {
+    let mdf = MdfFile::parse_from_bytes(data.to_vec())?;
+    let sink = InMemorySink::new();
+    let mut writer = MdfWriter::new_from_writer(sink.clone());
+    cut_core(&mdf, &mut writer, start_time, end_time)?;
+    writer.finalize()?;
+    Ok(sink.to_vec())
+}
+
+/// Shared implementation of the time-window cut. Populates an already-created
+/// (but not yet initialised) `writer` from a parsed `mdf`; the caller is
+/// responsible for calling [`MdfWriter::finalize`] afterwards. Backs both the
+/// path-based and in-memory (`*_bytes`) entry points.
+fn cut_core(
+    mdf: &MdfFile,
+    writer: &mut MdfWriter,
+    start_time: f64,
+    end_time: f64,
+) -> Result<(), MdfError> {
     writer.init_mdf_file()?;
 
     // Anchor the cut output to the same wall-clock as the source. Without this
@@ -267,12 +324,12 @@ pub fn cut_mdf_by_time(
                 .get_block_position(&cg_id)
                 .ok_or_else(|| MdfError::BlockLinkError(format!("cg '{}' not found", cg_id)))?;
             let new_acq_name =
-                clone_block_to_writer(&mut writer, &mdf.mmap, cg.block.acq_name_addr, &mut block_cache)?;
+                clone_block_to_writer(writer, &mdf.mmap, cg.block.acq_name_addr, &mut block_cache)?;
             if new_acq_name != 0 {
                 writer.update_link(cg_pos + 40, new_acq_name)?;
             }
             let new_acq_source = clone_block_to_writer(
-                &mut writer,
+                writer,
                 &mdf.mmap,
                 cg.block.acq_source_addr,
                 &mut block_cache,
@@ -281,7 +338,7 @@ pub fn cut_mdf_by_time(
                 writer.update_link(cg_pos + 48, new_acq_source)?;
             }
             let new_cg_comment =
-                clone_block_to_writer(&mut writer, &mdf.mmap, cg.block.comment_addr, &mut block_cache)?;
+                clone_block_to_writer(writer, &mdf.mmap, cg.block.comment_addr, &mut block_cache)?;
             if new_cg_comment != 0 {
                 writer.update_link(cg_pos + 64, new_cg_comment)?;
             }
@@ -334,12 +391,12 @@ pub fn cut_mdf_by_time(
                     MdfError::BlockLinkError(format!("cn '{}' not found", cn_id))
                 })?;
                 let new_source =
-                    clone_block_to_writer(&mut writer, &mdf.mmap, src_source_addr, &mut block_cache)?;
+                    clone_block_to_writer(writer, &mdf.mmap, src_source_addr, &mut block_cache)?;
                 if new_source != 0 {
                     writer.update_link(cn_pos + 48, new_source)?;
                 }
                 let new_conv = clone_block_to_writer(
-                    &mut writer,
+                    writer,
                     &mdf.mmap,
                     src_conversion_addr,
                     &mut block_cache,
@@ -348,12 +405,12 @@ pub fn cut_mdf_by_time(
                     writer.update_link(cn_pos + 56, new_conv)?;
                 }
                 let new_unit =
-                    clone_block_to_writer(&mut writer, &mdf.mmap, src_unit_addr, &mut block_cache)?;
+                    clone_block_to_writer(writer, &mdf.mmap, src_unit_addr, &mut block_cache)?;
                 if new_unit != 0 {
                     writer.update_link(cn_pos + 72, new_unit)?;
                 }
                 let new_comment =
-                    clone_block_to_writer(&mut writer, &mdf.mmap, src_comment_addr, &mut block_cache)?;
+                    clone_block_to_writer(writer, &mdf.mmap, src_comment_addr, &mut block_cache)?;
                 if new_comment != 0 {
                     writer.update_link(cn_pos + 80, new_comment)?;
                 }
@@ -537,5 +594,5 @@ pub fn cut_mdf_by_time(
         }
     }
 
-    writer.finalize()
+    Ok(())
 }

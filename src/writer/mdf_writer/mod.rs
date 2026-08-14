@@ -15,6 +15,8 @@ mod init;
 pub mod data;
 mod vlsd;
 
+pub use io::InMemorySink;
+
 /// Helper structure tracking an open DTBLOCK during writing
 struct OpenDataBlock {
     dg_id: String,

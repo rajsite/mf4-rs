@@ -6,3 +6,4 @@
 pub mod mdf_writer;
 pub use mdf_writer::MdfWriter;
 pub use mdf_writer::data::ColumnData;
+pub use mdf_writer::InMemorySink;

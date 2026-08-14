@@ -7,11 +7,11 @@
 pub mod blocks;
 pub mod error;
 pub mod writer;
-/// File-cutting utilities (native only; not available on `wasm32-unknown-unknown`).
-#[cfg(not(target_arch = "wasm32"))]
+/// File-cutting utilities. Path-based entry points are native only; the
+/// in-memory `*_bytes` variants are available on all targets (including wasm).
 pub mod cut;
-/// File-merging utilities (native only; not available on `wasm32-unknown-unknown`).
-#[cfg(not(target_arch = "wasm32"))]
+/// File-merging utilities. The path-based entry point is native only; the
+/// in-memory `merge_files_bytes` variant is available on all targets.
 pub mod merge;
 pub mod index;
 pub mod signal;
