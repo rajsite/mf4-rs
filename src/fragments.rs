@@ -63,7 +63,12 @@ pub(crate) enum Coverage {
     Full(Vec<u8>),
     /// A gap was found: `offset`/`length` describe the first still-missing
     /// sub-range of the request.
-    Gap { offset: u64, length: u64 },
+    Gap {
+        offset: u64,
+        // Only read by the incremental (wasm) index builder's recording reader.
+        #[cfg_attr(not(feature = "wasm"), allow(dead_code))]
+        length: u64,
+    },
 }
 
 /// A store of file fragments — `(absolute_offset, bytes)` pairs, possibly
@@ -88,6 +93,8 @@ pub(crate) struct FragmentStore {
 }
 
 impl FragmentStore {
+    // Used by the incremental (wasm) index builder; unused in a wasip2-only build.
+    #[cfg_attr(not(feature = "wasm"), allow(dead_code))]
     pub(crate) fn new() -> Self {
         Self { fragments: Vec::new(), running_max_end: Vec::new() }
     }
@@ -103,6 +110,7 @@ impl FragmentStore {
     }
 
     /// Insert one fragment, keeping the store sorted by `offset`.
+    #[cfg_attr(not(feature = "wasm"), allow(dead_code))]
     pub(crate) fn push(&mut self, offset: u64, bytes: Vec<u8>) -> Result<(), MdfError> {
         let idx = self.fragments.partition_point(|(start, _)| *start <= offset);
         self.fragments.insert(idx, (offset, bytes));
@@ -252,17 +260,23 @@ impl ByteRangeReader for FragmentRangeReader {
 /// The host driver fetches all recorded ranges (coalesced, with look-ahead)
 /// and retries, so a file with N metadata blocks builds in O(passes) ≈ a
 /// handful, not O(N).
+//
+// Only the incremental (wasm) index builder drives this reader; a wasip2-only
+// build serves reads through `FragmentRangeReader` and never constructs it.
+#[cfg_attr(not(feature = "wasm"), allow(dead_code))]
 pub(crate) struct RecordingRangeReader<'a> {
     pub(crate) store: &'a FragmentStore,
     pub(crate) misses: Vec<(u64, u64)>,
 }
 
+#[cfg_attr(not(feature = "wasm"), allow(dead_code))]
 impl<'a> RecordingRangeReader<'a> {
     pub(crate) fn new(store: &'a FragmentStore) -> Self {
         Self { store, misses: Vec::new() }
     }
 }
 
+#[cfg_attr(not(feature = "wasm"), allow(dead_code))]
 impl<'a> ByteRangeReader for RecordingRangeReader<'a> {
     type Error = MdfError;
 

@@ -46,6 +46,10 @@ pub(crate) mod fragments;
 #[cfg(feature = "wasm")]
 pub mod wasm;
 
+// WASI Preview 2 (WebAssembly Component) bindings module
+#[cfg(feature = "wasip2")]
+pub mod wasi;
+
 // Re-export the Python module when building as an extension
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
