@@ -1,0 +1,241 @@
+// WIT definition for the mf4-rs WebAssembly Component (WASI Preview 2).
+//
+// The `mf4` world exports the reader / writer / index / ops interfaces that
+// mirror the crate's public API. The library component built from
+// src/wasi/mod.rs (feature `wasip2`) implements this world; the example
+// command components in ../../wasi_examples import it via `wac plug`.
+//
+// The package version tracks the crate version but is not release-critical:
+// the component is not published to a registry in this iteration.
+package mf4:core@3.6.0;
+
+interface types {
+  /// Physical/binary encoding of a channel's samples. Mirrors
+  /// `mf4_rs::blocks::common::DataType`; the native `Unknown(u8)` payload is
+  /// collapsed to `unknown` (the raw discriminant byte is dropped).
+  enum data-type {
+    unsigned-integer-le,
+    unsigned-integer-be,
+    signed-integer-le,
+    signed-integer-be,
+    float-le,
+    float-be,
+    string-latin1,
+    string-utf8,
+    string-utf16-le,
+    string-utf16-be,
+    byte-array,
+    mime-sample,
+    mime-stream,
+    can-open-date,
+    can-open-time,
+    complex-le,
+    complex-be,
+    unknown,
+  }
+
+  /// A single decoded sample. Mirrors
+  /// `mf4_rs::parsing::decoder::DecodedValue`.
+  variant decoded-value {
+    unsigned-integer(u64),
+    signed-integer(s64),
+    float(f64),
+    %string(string),
+    byte-array(list<u8>),
+    mime-sample(list<u8>),
+    mime-stream(list<u8>),
+    unknown,
+  }
+
+  /// Metadata for a single channel.
+  record channel-info {
+    name: option<string>,
+    unit: option<string>,
+    comment: option<string>,
+    data-type: data-type,
+    is-master: bool,
+    bit-count: u32,
+  }
+
+  /// Metadata for a channel group and its channels.
+  record group-info {
+    name: option<string>,
+    comment: option<string>,
+    record-count: u64,
+    channels: list<channel-info>,
+  }
+
+  /// Lightweight channel-group metadata exposed by an index.
+  record index-group-info {
+    name: option<string>,
+    record-count: u64,
+    channel-names: list<string>,
+    master-channel: option<string>,
+  }
+
+  /// A named signal: values paired with the group's master/time axis.
+  record signal {
+    name: string,
+    unit: option<string>,
+    timestamps: list<f64>,
+    values: list<option<decoded-value>>,
+  }
+
+  /// A half-open byte range `[offset, offset + length)` into the file.
+  record byte-range {
+    offset: u64,
+    length: u64,
+  }
+}
+
+interface reader {
+  use types.{group-info, signal};
+
+  /// In-memory MDF reader. Owns its buffer, so it is a `'static` resource.
+  resource mdf {
+    /// Parse an MDF file from an owned byte buffer.
+    from-bytes: static func(data: list<u8>) -> result<mdf, string>;
+    /// Read and parse an MDF file from the host filesystem (std::fs).
+    from-file: static func(path: string) -> result<mdf, string>;
+    /// All channel groups with their channel metadata.
+    groups: func() -> result<list<group-info>, string>;
+    /// Flat list of every channel name across all groups.
+    channel-names: func() -> list<string>;
+    /// Decoded values as `f64` (conversions applied, invalid samples NaN).
+    /// `group` disambiguates when the name is not unique.
+    values: func(name: string, group: option<string>) -> result<list<f64>, string>;
+    /// Full signal (values + master/time axis) for a channel.
+    read: func(name: string, group: option<string>) -> result<signal, string>;
+    /// File start time in nanoseconds since the UNIX epoch, if recorded.
+    start-time-ns: func() -> option<u64>;
+    /// JSON description of the physical block layout of the file.
+    file-layout-json: func() -> result<string, string>;
+  }
+}
+
+interface writer {
+  use types.{data-type, decoded-value};
+
+  /// Streaming MDF writer producing an in-memory buffer or a file.
+  resource mdf-writer {
+    constructor();
+    /// Emit the ID + header blocks. Must be called first.
+    init-mdf-file: func() -> result<_, string>;
+    /// Override the header start time (nanoseconds since the UNIX epoch).
+    set-start-time: func(abs-time-ns: u64) -> result<_, string>;
+    /// Add a channel group; returns an opaque group id used by later calls.
+    add-channel-group: func(name: option<string>) -> result<string, string>;
+    /// Add a typed channel to a group; returns an opaque channel id.
+    add-channel: func(group-id: string, name: string, dt: data-type) -> result<string, string>;
+    /// Add a UTF-8 string (VLSD) channel.
+    add-string-channel: func(group-id: string, name: string) -> result<string, string>;
+    /// Add an f64 master/time channel and mark it as the group master.
+    add-time-channel: func(group-id: string, name: string) -> result<string, string>;
+    /// Add an f64 data channel.
+    add-float-channel: func(group-id: string, name: string) -> result<string, string>;
+    /// Add an f32 data channel.
+    add-float32-channel: func(group-id: string, name: string) -> result<string, string>;
+    /// Add a u64 data channel.
+    add-int-channel: func(group-id: string, name: string) -> result<string, string>;
+    /// Add an s64 data channel.
+    add-sint-channel: func(group-id: string, name: string) -> result<string, string>;
+    /// Mark an existing channel as the group master (time) channel.
+    set-time-channel: func(channel-id: string) -> result<_, string>;
+    /// Open the data block for a group before writing records.
+    start-data-block: func(group-id: string) -> result<_, string>;
+    /// Append one record (one value per channel, in channel order).
+    write-record: func(group-id: string, values: list<decoded-value>) -> result<_, string>;
+    /// Close the group's data block.
+    finish-data-block: func(group-id: string) -> result<_, string>;
+    /// Finalize and return the complete file as bytes.
+    finalize: func() -> result<list<u8>, string>;
+    /// Finalize and write the complete file to the host filesystem.
+    finalize-to-file: func(path: string) -> result<_, string>;
+  }
+}
+
+interface index {
+  use types.{index-group-info, signal, byte-range};
+
+  /// Self-contained JSON-serializable index over an MDF file, supporting
+  /// lazy fragment-based and whole-file reads.
+  resource mdf-index {
+    /// Build an index from an owned byte buffer.
+    from-bytes: static func(data: list<u8>) -> result<mdf-index, string>;
+    /// Build an index from a file on the host filesystem (std::fs).
+    from-file: static func(path: string) -> result<mdf-index, string>;
+    /// Load a previously serialized index from a JSON string.
+    from-json: static func(json: string) -> result<mdf-index, string>;
+    /// Load a previously serialized index from a JSON file.
+    load-from-file: static func(path: string) -> result<mdf-index, string>;
+    /// Serialize this index to a JSON string.
+    to-json: func() -> result<string, string>;
+    /// Serialize this index to a JSON file.
+    save-to-file: func(path: string) -> result<_, string>;
+    /// Validate internal consistency of the index.
+    validate: func() -> result<_, string>;
+    /// Channel-group metadata.
+    groups: func() -> result<list<index-group-info>, string>;
+    /// Flat list of every channel name.
+    channel-names: func() -> list<string>;
+    /// Total size in bytes of the indexed file.
+    file-size: func() -> u64;
+    /// Byte ranges covering all records of a fixed-length channel.
+    byte-ranges: func(name: string, group: option<string>) -> result<list<byte-range>, string>;
+    /// Byte ranges covering a record window of a fixed-length channel.
+    byte-ranges-for-records: func(name: string, start-record: u64, record-count: u64,
+      group: option<string>) -> result<list<byte-range>, string>;
+    /// Byte ranges of the raw record area needed to decode a channel
+    /// (including VLSD signal-data blocks).
+    signal-byte-ranges: func(name: string, group: option<string>) -> result<list<byte-range>, string>;
+    /// Decode a channel to `f64` from caller-fetched fragments matching
+    /// `ranges` (parallel lists).
+    values-from-fragments: func(name: string, group: option<string>,
+      ranges: list<byte-range>, fragments: list<list<u8>>) -> result<list<f64>, string>;
+    /// Decode a channel to a full signal from caller-fetched fragments.
+    read-from-fragments: func(name: string, group: option<string>,
+      ranges: list<byte-range>, fragments: list<list<u8>>) -> result<signal, string>;
+    /// Read a channel to `f64` by loading the whole file via std::fs.
+    values-from-file: func(name: string, group: option<string>, path: string)
+      -> result<list<f64>, string>;
+    /// Read a channel to a full signal by loading the whole file via std::fs.
+    read-from-file: func(name: string, group: option<string>, path: string)
+      -> result<signal, string>;
+  }
+}
+
+interface ops {
+  /// Cut a time window `[start, end]` (relative seconds) from an in-memory
+  /// file, returning the trimmed file as bytes.
+  cut-by-time: func(input: list<u8>, start: f64, end: f64) -> result<list<u8>, string>;
+  /// Cut a time window given absolute UNIX-epoch nanosecond bounds.
+  cut-by-utc: func(input: list<u8>, start-ns: u64, end-ns: u64) -> result<list<u8>, string>;
+  /// Merge two in-memory files, returning the merged file as bytes.
+  merge: func(first: list<u8>, second: list<u8>) -> result<list<u8>, string>;
+  /// File-I/O variant of `cut-by-time` (reads/writes via std::fs).
+  cut-by-time-file: func(input: string, output: string, start: f64, end: f64) -> result<_, string>;
+  /// File-I/O variant of `cut-by-utc` (reads/writes via std::fs).
+  cut-by-utc-file: func(input: string, output: string, start-ns: u64, end-ns: u64) -> result<_, string>;
+  /// File-I/O variant of `merge` (reads/writes via std::fs).
+  merge-file: func(output: string, first: string, second: string) -> result<_, string>;
+}
+
+world mf4 {
+  export types;
+  export reader;
+  export writer;
+  export index;
+  export ops;
+}
+
+/// Consumer world for the example command components in ../../wasi_examples.
+/// It *imports* the mf4:core interfaces so `wac plug` can satisfy those
+/// imports with the library component's matching exports, producing a
+/// runnable `wasi:cli` command.
+world mf4-consumer {
+  import types;
+  import reader;
+  import writer;
+  import index;
+  import ops;
+}

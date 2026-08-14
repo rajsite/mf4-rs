@@ -7,11 +7,11 @@
 pub mod blocks;
 pub mod error;
 pub mod writer;
-/// File-cutting utilities (native only; not available on `wasm32-unknown-unknown`).
-#[cfg(not(target_arch = "wasm32"))]
+/// File-cutting utilities. Path-based entry points are native only; the
+/// in-memory `*_bytes` variants are available on all targets (including wasm).
 pub mod cut;
-/// File-merging utilities (native only; not available on `wasm32-unknown-unknown`).
-#[cfg(not(target_arch = "wasm32"))]
+/// File-merging utilities. The path-based entry point is native only; the
+/// in-memory `merge_files_bytes` variant is available on all targets.
 pub mod merge;
 pub mod index;
 pub mod signal;
@@ -37,9 +37,18 @@ pub mod api {
 #[cfg(feature = "pyo3")]
 pub mod python;
 
+// Shared, target-neutral fragment-backed byte-range readers. Used by both
+// the wasm-bindgen (`wasm`) and WASI Preview 2 component (`wasip2`) bindings.
+#[cfg(any(feature = "wasm", feature = "wasip2"))]
+pub(crate) mod fragments;
+
 // WebAssembly (wasm-bindgen) bindings module
 #[cfg(feature = "wasm")]
 pub mod wasm;
+
+// WASI Preview 2 (WebAssembly Component) bindings module
+#[cfg(feature = "wasip2")]
+pub mod wasi;
 
 // Re-export the Python module when building as an extension
 #[cfg(feature = "pyo3")]

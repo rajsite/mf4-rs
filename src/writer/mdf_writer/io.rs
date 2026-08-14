@@ -1,8 +1,48 @@
 // Low level file and block handling utilities for MdfWriter
 use super::*;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Cursor, Seek, SeekFrom, Write};
+use std::rc::Rc;
 use byteorder::{LittleEndian, WriteBytesExt};
+
+/// A shareable, in-memory `Write + Seek` sink for [`MdfWriter::new_from_writer`].
+///
+/// Clone the handle, hand one clone to the writer, and recover the finished
+/// file bytes from the other after [`MdfWriter::finalize`]. This is the
+/// portable way to produce an MDF file entirely in memory (used by the
+/// `*_bytes` cutting/merging entry points and the wasm/WASI bindings). It is
+/// single-threaded (`Rc`-based), which suits the wasm targets and synchronous
+/// native use.
+#[derive(Clone, Default)]
+pub struct InMemorySink(Rc<RefCell<Cursor<Vec<u8>>>>);
+
+impl InMemorySink {
+    /// Create an empty in-memory sink.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Copy out the bytes written so far.
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.borrow().get_ref().clone()
+    }
+}
+
+impl Write for InMemorySink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.borrow_mut().write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.borrow_mut().flush()
+    }
+}
+
+impl Seek for InMemorySink {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.0.borrow_mut().seek(pos)
+    }
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;

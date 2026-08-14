@@ -1,0 +1,13 @@
+[package]
+name = "wasi-example-cut-file"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "cut_file"
+path = "src/main.rs"
+
+[dependencies]
+wit-bindgen.workspace = true

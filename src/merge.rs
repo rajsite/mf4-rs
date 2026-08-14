@@ -4,7 +4,7 @@ use byteorder::{ByteOrder, BigEndian, LittleEndian};
 
 use crate::cut::clone_block_to_writer;
 use crate::error::MdfError;
-use crate::writer::MdfWriter;
+use crate::writer::{InMemorySink, MdfWriter};
 use crate::parsing::mdf_file::MdfFile;
 use crate::parsing::decoder::{decode_channel_value, DecodedValue};
 use crate::blocks::common::{BlockHeader, BlockParse, DataType, read_string_block};
@@ -234,12 +234,35 @@ fn collect_groups(file: &MdfFile, src_file: usize) -> Result<Vec<MergedGroup>, M
 ///
 /// # Returns
 /// `Ok(())` on success or an [`MdfError`] otherwise.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn merge_files(output: &str, first: &str, second: &str) -> Result<(), MdfError> {
     let mdf1 = MdfFile::parse_from_file(first)?;
     let mdf2 = MdfFile::parse_from_file(second)?;
+    let mut writer = MdfWriter::new(output)?;
+    merge_core(&mdf1, &mdf2, &mut writer)?;
+    writer.finalize()
+}
 
-    let mut groups = collect_groups(&mdf1, 0)?;
-    let other_groups = collect_groups(&mdf2, 1)?;
+/// In-memory variant of [`merge_files`]: merge two source files given as
+/// bytes and return the merged file as bytes. Available on all targets
+/// (including wasm/WASI).
+pub fn merge_files_bytes(first: &[u8], second: &[u8]) -> Result<Vec<u8>, MdfError> {
+    let mdf1 = MdfFile::parse_from_bytes(first.to_vec())?;
+    let mdf2 = MdfFile::parse_from_bytes(second.to_vec())?;
+    let sink = InMemorySink::new();
+    let mut writer = MdfWriter::new_from_writer(sink.clone());
+    merge_core(&mdf1, &mdf2, &mut writer)?;
+    writer.finalize()?;
+    Ok(sink.to_vec())
+}
+
+/// Shared implementation of the merge. Populates an already-created (but not
+/// yet initialised) `writer`; the caller is responsible for calling
+/// [`MdfWriter::finalize`]. Backs both the path-based and in-memory
+/// (`merge_files_bytes`) entry points.
+fn merge_core(mdf1: &MdfFile, mdf2: &MdfFile, writer: &mut MdfWriter) -> Result<(), MdfError> {
+    let mut groups = collect_groups(mdf1, 0)?;
+    let other_groups = collect_groups(mdf2, 1)?;
 
     for og in other_groups {
         if let Some(g1) = groups.iter_mut().find(|g| g.meta.matches(&og.meta)) {
@@ -251,7 +274,6 @@ pub fn merge_files(output: &str, first: &str, second: &str) -> Result<(), MdfErr
         }
     }
 
-    let mut writer = MdfWriter::new(output)?;
     writer.init_mdf_file()?;
     writer.set_start_time(
         mdf1.header.abs_time,
@@ -303,20 +325,20 @@ pub fn merge_files(output: &str, first: &str, second: &str) -> Result<(), MdfErr
             let cn_pos = writer.get_block_position(&id).ok_or_else(|| {
                 MdfError::BlockLinkError(format!("cn '{}' not found", id))
             })?;
-            let new_source = clone_block_to_writer(&mut writer, src_mmap, ch.source_addr, cache)?;
+            let new_source = clone_block_to_writer(writer, src_mmap, ch.source_addr, cache)?;
             if new_source != 0 {
                 writer.update_link(cn_pos + 48, new_source)?;
             }
             let new_conv =
-                clone_block_to_writer(&mut writer, src_mmap, ch.conversion_addr, cache)?;
+                clone_block_to_writer(writer, src_mmap, ch.conversion_addr, cache)?;
             if new_conv != 0 {
                 writer.update_link(cn_pos + 56, new_conv)?;
             }
-            let new_unit = clone_block_to_writer(&mut writer, src_mmap, ch.unit_addr, cache)?;
+            let new_unit = clone_block_to_writer(writer, src_mmap, ch.unit_addr, cache)?;
             if new_unit != 0 {
                 writer.update_link(cn_pos + 72, new_unit)?;
             }
-            let new_comment = clone_block_to_writer(&mut writer, src_mmap, ch.comment_addr, cache)?;
+            let new_comment = clone_block_to_writer(writer, src_mmap, ch.comment_addr, cache)?;
             if new_comment != 0 {
                 writer.update_link(cn_pos + 80, new_comment)?;
             }
@@ -342,5 +364,5 @@ pub fn merge_files(output: &str, first: &str, second: &str) -> Result<(), MdfErr
         writer.finish_data_block(&cg_id)?;
     }
 
-    writer.finalize()
+    Ok(())
 }

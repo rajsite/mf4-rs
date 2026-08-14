@@ -1,0 +1,85 @@
+name: WASI Component
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "wasi/**"
+      - "wasi_examples/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/wasi.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "wasi/**"
+      - "wasi_examples/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/wasi.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: wasi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-run:
+    name: Build, compose, and run the WASI component
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            wasi_examples/target
+          key: wasi-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'wasi_examples/Cargo.lock') }}
+          restore-keys: |
+            wasi-${{ runner.os }}-
+
+      # Prebuilt wasm-tools and wasmtime binaries from the Bytecode
+      # Alliance setup actions (fast, no compilation).
+      - uses: bytecodealliance/actions/wasm-tools/setup@v1
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+
+      # wac has no dedicated setup action; install via cargo-binstall
+      # (prebuilt binary) with a source-build fallback.
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+      - name: Install wac and just
+        run: cargo binstall -y wac-cli just || cargo install wac-cli just
+
+      - name: Build library component
+        run: cargo build --release --target wasm32-wasip2 --features wasip2
+
+      - name: Verify exported WIT
+        run: |
+          wasm-tools component wit \
+            target/wasm32-wasip2/release/mf4_rs.wasm
+
+      - name: Compose and run every example
+        run: just run
+
+      - name: Upload library component
+        uses: actions/upload-artifact@v4
+        with:
+          name: mf4-component
+          path: target/wasm32-wasip2/release/mf4_rs.wasm
+          if-no-files-found: error
+
+      - name: Upload composed example components
+        uses: actions/upload-artifact@v4
+        with:
+          name: mf4-composed-examples
+          path: target/wasm32-wasip2/release/*.composed.wasm
+          if-no-files-found: error

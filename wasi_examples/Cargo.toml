@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "write_file",
+    "read_file",
+    "index_operations",
+    "cut_file",
+    "merge_files",
+    "visualize_layout",
+]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[workspace.dependencies]
+# Guest bindings generator for the imported mf4:core interfaces. Kept in lock
+# step with the crate root's wit-bindgen so the generated types match the
+# library component exactly.
+wit-bindgen = { version = "0.60.0", default-features = false, features = ["realloc", "macros"] }
+
+# Smaller components: the examples are demos, optimize for size.
+[profile.release]
+opt-level = "s"
+strip = true
