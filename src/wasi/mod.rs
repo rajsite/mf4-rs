@@ -660,7 +660,8 @@ impl GuestMdfIndex for MdfIndexRes {
     }
 
     fn load_from_file(path: String) -> Result<MdfIndexHandle, String> {
-        let index = MdfIndex::load_from_file(&path).map_err(e)?;
+        let json = std::fs::read_to_string(&path).map_err(|err| err.to_string())?;
+        let index = MdfIndex::from_json(&json).map_err(e)?;
         Ok(MdfIndexHandle::new(MdfIndexRes { index }))
     }
 
@@ -669,7 +670,8 @@ impl GuestMdfIndex for MdfIndexRes {
     }
 
     fn save_to_file(&self, path: String) -> Result<(), String> {
-        self.index.save_to_file(&path).map_err(e)
+        let json = self.index.to_json().map_err(e)?;
+        std::fs::write(&path, json).map_err(|err| err.to_string())
     }
 
     fn validate(&self) -> Result<(), String> {
