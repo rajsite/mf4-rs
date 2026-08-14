@@ -69,3 +69,17 @@ jobs:
 
       - name: Compose and run every example
         run: just run
+
+      - name: Upload library component
+        uses: actions/upload-artifact@v4
+        with:
+          name: mf4-component
+          path: target/wasm32-wasip2/release/mf4_rs.wasm
+          if-no-files-found: error
+
+      - name: Upload composed example components
+        uses: actions/upload-artifact@v4
+        with:
+          name: mf4-composed-examples
+          path: target/wasm32-wasip2/release/*.composed.wasm
+          if-no-files-found: error
