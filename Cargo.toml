@@ -54,6 +54,12 @@ wasm-bindgen = { version = "0.2", optional = true }
 js-sys = { version = "0.3", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 
+# WASI Preview 2 component bindings (optional). Enabled by the `wasip2`
+# feature; used by src/wasi/mod.rs to export the reader/writer/index/ops
+# interfaces as a WebAssembly Component via wit-bindgen. Only relevant for
+# the wasm32-wasip2 target.
+wit-bindgen = { version = "0.60.0", default-features = false, features = ["realloc", "macros"], optional = true }
+
 [dev-dependencies]
 tiny_http = "0.12"
 tempfile = "3"
@@ -69,3 +75,4 @@ default = []
 http = ["dep:ureq", "dep:openssl", "dep:native-tls"]
 pyo3 = ["dep:pyo3", "dep:numpy", "dep:pyo3-stub-gen", "http"]
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:serde-wasm-bindgen"]
+wasip2 = ["dep:wit-bindgen"]
