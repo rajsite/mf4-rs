@@ -1,0 +1,13 @@
+[package]
+name = "wasi-example-merge-files"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "merge_files"
+path = "src/main.rs"
+
+[dependencies]
+wit-bindgen.workspace = true

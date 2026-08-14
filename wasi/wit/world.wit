@@ -227,3 +227,15 @@ world mf4 {
   export index;
   export ops;
 }
+
+/// Consumer world for the example command components in ../../wasi_examples.
+/// It *imports* the mf4:core interfaces so `wac plug` can satisfy those
+/// imports with the library component's matching exports, producing a
+/// runnable `wasi:cli` command.
+world mf4-consumer {
+  import types;
+  import reader;
+  import writer;
+  import index;
+  import ops;
+}
